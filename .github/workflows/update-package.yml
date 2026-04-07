@@ -26,7 +26,7 @@ jobs:
       image: archlinux:base-devel
     steps:
       - name: Install dependencies
-        run: pacman -Sy --noconfirm git openssh
+        run: pacman -Syu --noconfirm git openssh
 
       - name: Checkout aur-packages
         uses: actions/checkout@v4
@@ -39,9 +39,11 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Setup SSH for AUR
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/aur
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
           chmod 600 ~/.ssh/aur
           echo "aur.archlinux.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuBKrPzbawxA/k2g6NcyV5jmqwJ2s+zpgZGZ7tpLIcN" >> ~/.ssh/known_hosts
           cat > ~/.ssh/config << 'EOF'
@@ -51,16 +53,22 @@ jobs:
           EOF
 
       - name: Update PKGBUILD
+        env:
+          PACKAGE: ${{ github.event.inputs.package }}
+          TAG: ${{ github.event.inputs.tag }}
+          REPO: ${{ github.event.inputs.repository }}
         run: |
-          PACKAGE="${{ github.event.inputs.package }}"
-          TAG="${{ github.event.inputs.tag }}"
-          REPO="${{ github.event.inputs.repository }}"
           VERSION="${TAG#v}"
 
           CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${TAG}/checksums.txt"
           curl -fSL "${CHECKSUMS_URL}" -o checksums.txt
 
           SHA_LINUX_AMD64=$(grep "linux_amd64" checksums.txt | awk '{print $1}')
+
+          if [[ -z "${SHA_LINUX_AMD64}" ]]; then
+            echo "ERROR: Could not parse linux_amd64 checksum from checksums.txt"
+            exit 1
+          fi
 
           PKGBUILD="${PACKAGE}/PKGBUILD"
 
@@ -71,27 +79,28 @@ jobs:
           rm checksums.txt
 
       - name: Generate .SRCINFO
+        env:
+          PACKAGE: ${{ github.event.inputs.package }}
         run: |
-          PACKAGE="${{ github.event.inputs.package }}"
           cd "${PACKAGE}"
-          # makepkg --printsrcinfo must run as non-root
           useradd -m builder
           chown -R builder:builder .
           su builder -c "makepkg --printsrcinfo > .SRCINFO"
 
       - name: Commit to GitHub repo
+        env:
+          PACKAGE: ${{ github.event.inputs.package }}
+          TAG: ${{ github.event.inputs.tag }}
         run: |
-          PACKAGE="${{ github.event.inputs.package }}"
-          TAG="${{ github.event.inputs.tag }}"
-          git add "${PACKAGE}/PKGBUILD"
+          git add "${PACKAGE}/PKGBUILD" "${PACKAGE}/.SRCINFO"
           git commit -m "Update ${PACKAGE} to ${TAG}"
           git push
 
       - name: Push to AUR
+        env:
+          PACKAGE: ${{ github.event.inputs.package }}
+          TAG: ${{ github.event.inputs.tag }}
         run: |
-          PACKAGE="${{ github.event.inputs.package }}"
-          TAG="${{ github.event.inputs.tag }}"
-
           git clone ssh://aur@aur.archlinux.org/${PACKAGE}.git /tmp/aur-repo
           cp "${PACKAGE}/PKGBUILD" /tmp/aur-repo/
           cp "${PACKAGE}/.SRCINFO" /tmp/aur-repo/
@@ -100,5 +109,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "No changes to push to AUR"
+            exit 0
+          fi
           git commit -m "Update to ${TAG}"
           git push
