@@ -1,0 +1,104 @@
+name: Update AUR Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package name (e.g., gccli-bin)"
+        required: true
+        type: string
+      tag:
+        description: "Release tag (e.g., v1.7.1)"
+        required: true
+        type: string
+      repository:
+        description: "Source repository (e.g., bpauli/gccli)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  update-package:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    steps:
+      - name: Install dependencies
+        run: pacman -Sy --noconfirm git openssh
+
+      - name: Checkout aur-packages
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Setup SSH for AUR
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          echo "aur.archlinux.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuBKrPzbawxA/k2g6NcyV5jmqwJ2s+zpgZGZ7tpLIcN" >> ~/.ssh/known_hosts
+          cat > ~/.ssh/config << 'EOF'
+          Host aur.archlinux.org
+            IdentityFile ~/.ssh/aur
+            User aur
+          EOF
+
+      - name: Update PKGBUILD
+        run: |
+          PACKAGE="${{ github.event.inputs.package }}"
+          TAG="${{ github.event.inputs.tag }}"
+          REPO="${{ github.event.inputs.repository }}"
+          VERSION="${TAG#v}"
+
+          CHECKSUMS_URL="https://github.com/${REPO}/releases/download/${TAG}/checksums.txt"
+          curl -fSL "${CHECKSUMS_URL}" -o checksums.txt
+
+          SHA_LINUX_AMD64=$(grep "linux_amd64" checksums.txt | awk '{print $1}')
+
+          PKGBUILD="${PACKAGE}/PKGBUILD"
+
+          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" "${PKGBUILD}"
+          sed -i "s/^pkgrel=.*/pkgrel=1/" "${PKGBUILD}"
+          sed -i "s/^sha256sums=.*/sha256sums=('${SHA_LINUX_AMD64}')/" "${PKGBUILD}"
+
+          rm checksums.txt
+
+      - name: Generate .SRCINFO
+        run: |
+          PACKAGE="${{ github.event.inputs.package }}"
+          cd "${PACKAGE}"
+          # makepkg --printsrcinfo must run as non-root
+          useradd -m builder
+          chown -R builder:builder .
+          su builder -c "makepkg --printsrcinfo > .SRCINFO"
+
+      - name: Commit to GitHub repo
+        run: |
+          PACKAGE="${{ github.event.inputs.package }}"
+          TAG="${{ github.event.inputs.tag }}"
+          git add "${PACKAGE}/PKGBUILD"
+          git commit -m "Update ${PACKAGE} to ${TAG}"
+          git push
+
+      - name: Push to AUR
+        run: |
+          PACKAGE="${{ github.event.inputs.package }}"
+          TAG="${{ github.event.inputs.tag }}"
+
+          git clone ssh://aur@aur.archlinux.org/${PACKAGE}.git /tmp/aur-repo
+          cp "${PACKAGE}/PKGBUILD" /tmp/aur-repo/
+          cp "${PACKAGE}/.SRCINFO" /tmp/aur-repo/
+
+          cd /tmp/aur-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update to ${TAG}"
+          git push
