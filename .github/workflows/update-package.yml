@@ -37,6 +37,7 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Setup SSH for AUR
         env:
@@ -86,6 +87,7 @@ jobs:
           useradd -m builder
           chown -R builder:builder .
           su builder -c "makepkg --printsrcinfo > .SRCINFO"
+          chown -R root:root .
 
       - name: Commit to GitHub repo
         env:
