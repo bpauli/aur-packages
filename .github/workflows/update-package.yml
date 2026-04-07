@@ -102,6 +102,7 @@ jobs:
         env:
           PACKAGE: ${{ github.event.inputs.package }}
           TAG: ${{ github.event.inputs.tag }}
+          GIT_SSH_COMMAND: "ssh -i $HOME/.ssh/aur -o UserKnownHostsFile=$HOME/.ssh/known_hosts -o IdentitiesOnly=yes"
         run: |
           git clone ssh://aur@aur.archlinux.org/${PACKAGE}.git /tmp/aur-repo
           cp "${PACKAGE}/PKGBUILD" /tmp/aur-repo/
