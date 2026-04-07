@@ -95,6 +95,10 @@ jobs:
           TAG: ${{ github.event.inputs.tag }}
         run: |
           git add "${PACKAGE}/PKGBUILD" "${PACKAGE}/.SRCINFO"
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
           git commit -m "Update ${PACKAGE} to ${TAG}"
           git push
 
