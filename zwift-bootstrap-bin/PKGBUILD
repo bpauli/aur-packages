@@ -6,8 +6,9 @@ pkgdesc="Unofficial native Linux launcher for Zwift that installs, updates and s
 arch=('x86_64')
 url="https://github.com/bpauli/zwift-bootstrap"
 license=('Apache-2.0 OR MIT')
-depends=('gcc-libs' 'glibc')
+depends=('dbus' 'gcc-libs' 'glibc')
 optdepends=('wine: run the game'
+            'bluez: Bluetooth LE sensors'
             'libnotify: notification when an update fails')
 provides=('zwift-bootstrap')
 conflicts=('zwift-bootstrap')
