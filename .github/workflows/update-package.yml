@@ -73,8 +73,12 @@ jobs:
 
           PKGBUILD="${PACKAGE}/PKGBUILD"
 
-          sed -i "s/^pkgver=.*/pkgver=${VERSION}/" "${PKGBUILD}"
-          sed -i "s/^pkgrel=.*/pkgrel=1/" "${PKGBUILD}"
+          # Keep pkgrel for the same version, so that a packaging fix
+          # (pkgrel=2 and later) survives a run for the same tag.
+          if [ "$(sed -n 's/^pkgver=//p' "${PKGBUILD}")" != "${VERSION}" ]; then
+            sed -i "s/^pkgver=.*/pkgver=${VERSION}/" "${PKGBUILD}"
+            sed -i "s/^pkgrel=.*/pkgrel=1/" "${PKGBUILD}"
+          fi
           sed -i "s/^sha256sums=.*/sha256sums=('${SHA_LINUX_AMD64}')/" "${PKGBUILD}"
 
           rm checksums.txt
